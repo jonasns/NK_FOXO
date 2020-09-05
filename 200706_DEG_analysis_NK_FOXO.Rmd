@@ -1,0 +1,1455 @@
+---
+title: "200706_DEG_analysis_NK_FOXO"
+output: html_notebook
+---
+
+####Install packages:
+```{r}
+#install.packages("ggfortify")
+#install.packages("calibrate")
+#install.packages("BiocManager")
+#BiocManager::install(c("edgeR"))
+#BiocManager::install(c("biomaRt"))
+#BiocManager::install(c("clusterProfiler","Rgraphviz","DOSE"))
+#BiocManager::install(c("org.Mm.eg.db"))
+```
+
+####Install specific package versions (for reproducibility)
+```{r}
+#packageurl <- "http://bioconductor.riken.jp/packages/3.10/bioc/src/contrib/IRanges_2.20.2.tar.gz"
+
+#install.packages(packageurl, repos=NULL, type="source")
+```
+
+```{r}
+#packageurl <- "http://bioconductor.riken.jp/packages/3.10/bioc/src/contrib/S4Vectors_0.24.4.tar.gz"
+
+#install.packages(packageurl, repos=NULL, type="source")
+```
+
+```{r}
+#packageurl <- "http://bioconductor.riken.jp/packages/3.10/bioc/bin/macosx/el-capitan/contrib/3.6/BiocGenerics_0.32.0.tgz"
+
+#install.packages(packageurl, repos=NULL, type="source")
+```
+
+```{r}
+#packageurl <- "http://bioconductor.riken.jp/packages/3.10/data/annotation/src/contrib/org.Mm.eg.db_3.10.0.tar.gz"
+#install.packages(packageurl, repos=NULL, type="source")
+```
+
+```{r}
+#packageurl <- "http://bioconductor.riken.jp/packages/3.10/bioc/bin/macosx/el-capitan/contrib/3.6/clusterProfiler_3.14.3.tgz"
+
+#install.packages(packageurl, repos=NULL, type="source")
+```
+
+```{r}
+#packageurl <- "http://bioconductor.riken.jp/packages/3.10/bioc/bin/macosx/el-capitan/contrib/3.6/DOSE_3.12.0.tgz"
+
+#install.packages(packageurl, repos=NULL, type="source")
+```
+
+```{r}
+#packageurl <- "http://bioconductor.riken.jp/packages/3.10/bioc/bin/macosx/el-capitan/contrib/3.6/AnnotationDbi_1.48.0.tgz"
+
+#install.packages(packageurl, repos=NULL, type="source")
+```
+
+```{r}
+#packageurl <- "http://bioconductor.riken.jp/packages/3.10/bioc/src/contrib/Biobase_2.46.0.tar.gz"
+
+#install.packages(packageurl, repos=NULL, type="source")
+```
+
+####Load packages:
+```{r message=FALSE}
+library(edgeR)
+library(ggplot2)
+library(ggfortify)
+library(biomaRt)
+library(calibrate)
+library(DOSE)
+library(clusterProfiler)
+library(org.Mm.eg.db)
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(pheatmap)
+```
+
+```{r}
+sessionInfo()
+```
+R version 3.6.1 (2019-07-05)
+Platform: x86_64-apple-darwin15.6.0 (64-bit)
+Running under: macOS Catalina 10.15.6
+
+Matrix products: default
+BLAS:   /System/Library/Frameworks/Accelerate.framework/Versions/A/Frameworks/vecLib.framework/Versions/A/libBLAS.dylib
+LAPACK: /Library/Frameworks/R.framework/Versions/3.6/Resources/lib/libRlapack.dylib
+
+locale:
+[1] en_US.UTF-8/en_US.UTF-8/en_US.UTF-8/C/en_US.UTF-8/en_US.UTF-8
+
+attached base packages:
+[1] parallel  stats4    stats     graphics  grDevices utils     datasets  methods   base     
+
+other attached packages:
+ [1] pheatmap_1.0.12        ggrepel_0.8.2          dplyr_1.0.0            org.Mm.eg.db_3.10.0   
+ [5] AnnotationDbi_1.48.0   IRanges_2.20.2         S4Vectors_0.24.4       Biobase_2.46.0        
+ [9] BiocGenerics_0.32.0    clusterProfiler_3.14.3 DOSE_3.12.0            calibrate_1.7.6       
+[13] MASS_7.3-51.6          biomaRt_2.42.1         ggfortify_0.4.10       ggplot2_3.3.1         
+[17] edgeR_3.28.1           limma_3.42.2          
+
+
+####Load data:
+```{r}
+counts <- read.delim("~/Desktop/NK_input/200207_EXP20CA6225_NK.clean.readCount", row.names = 1)
+head(counts)
+```
+
+####load list with all protein coding genes
+```{r}
+protCod = read.delim("~/Desktop/NK_input/200412_protCod_genes.txt", row.names = 1)
+```
+
+####Select only protein_coding genes
+```{r}
+counts_protCod = merge(x=protCod, y=counts, by.x=0, by.y=0, all.x=FALSE)
+rownames(counts_protCod) = counts_protCod[,1]
+counts_protCod = counts_protCod[,3:16]
+head(counts_protCod)
+#remove the following if wanting to do all genes instead:
+counts = counts_protCod
+```
+
+###Column selections for counts
+```{r}
+cols_wt=c(1:9)
+cols_KO=c(10:14)
+cols_CLP=c(1:3,10:11)
+cols_preNKP=c(4:6,12:14)
+
+wt_counts=counts[,cols_wt]
+KO_counts=counts[,cols_KO]
+CLP_counts=counts[,cols_CLP]
+preNKP_counts=counts[,cols_preNKP]
+
+head(wt_counts)
+head(KO_counts)
+head(CLP_counts)
+head(preNKP_counts)
+```
+
+###Select only protein-coding genes before TPM calculation
+```{r}
+counts_wl <- read.delim("~/Desktop/NK_input/200211_EXP20CA6225_NK.clean.readCount.withLength", row.names = 1)
+head(counts_wl)
+
+counts_wl_protCod = merge(x=protCod, y=counts_wl, by.x=0, by.y=0, all.x=FALSE)
+rownames(counts_wl_protCod) = counts_wl_protCod[,1]
+counts_wl_protCod = counts_wl_protCod[,3:17]
+head(counts_wl_protCod)
+#remove the following if wanting to do all genes instead:
+counts_wl = counts_wl_protCod
+head(counts_wl)
+```
+
+###TPM calculation
+```{r}
+RPK = counts_wl/counts_wl$Length
+RPK=RPK*1000
+head(RPK)
+
+sum_RPK = colSums(RPK)
+sum_RPK
+
+TPM= sweep(RPK,2,sum_RPK,`/`)
+TPM=TPM*10^6
+head(TPM)
+
+TPM=TPM[,2:15]
+head(TPM)
+write.table(as.matrix(TPM),file="~/Desktop/200412_TPM_all_protCod",sep="\t")
+```
+
+```{r}
+#reload TPM list
+TPM <- read.delim("~/Desktop/NK_input/3of3_protCod_TPM/200412_TPM_all_protCod", row.names = 1)
+```
+
+###TPM (=0.3) cutoffs in individual dataset to see what is expressed or not
+```{r}
+cols_CLP_wt=c(1:3)
+cols_preNKP_wt=c(4:6)
+cols_rNKP_wt=c(7:9)
+cols_CLP_KO=c(10:11)
+cols_preNKP_KO=c(12:14)
+
+CLP_wt_TPM = TPM[,cols_CLP_wt]
+preNKP_wt_TPM = TPM[,cols_preNKP_wt]
+rNKP_wt_TPM = TPM[,cols_rNKP_wt]
+CLP_KO_TPM = TPM[,cols_CLP_KO]
+preNKP_KO_TPM = TPM[,cols_preNKP_KO]
+  
+head(CLP_wt_TPM)
+head(preNKP_wt_TPM)
+head(rNKP_wt_TPM)
+head(CLP_KO_TPM)
+head(preNKP_KO_TPM)
+
+#apply cutoffs (0.3 TPM in 3/3 or 2/2 reps):
+CLP_wt_TPM_wco=CLP_wt_TPM[(rowSums(CLP_wt_TPM>=0.3)>=3),]
+preNKP_wt_TPM_wco=preNKP_wt_TPM[(rowSums(preNKP_wt_TPM>=0.3)>=3),]
+rNKP_wt_TPM_wco=rNKP_wt_TPM[(rowSums(rNKP_wt_TPM>=0.3)>=3),]
+CLP_KO_TPM_wco=CLP_KO_TPM[(rowSums(CLP_KO_TPM>=0.3)>=2),]
+preNKP_KO_TPM_wco=preNKP_KO_TPM[(rowSums(preNKP_KO_TPM>=0.3)>=3),]
+
+head(CLP_wt_TPM_wco)
+head(preNKP_wt_TPM_wco)
+head(rNKP_wt_TPM_wco)
+head(CLP_KO_TPM_wco)
+head(preNKP_KO_TPM_wco)
+
+nrow(CLP_wt_TPM_wco)
+nrow(preNKP_wt_TPM_wco)
+nrow(rNKP_wt_TPM_wco)
+nrow(CLP_KO_TPM_wco)
+nrow(preNKP_KO_TPM_wco)
+nrow(TPM)
+```
+
+#####write these individual lists to files
+```{r}
+#write.table(as.matrix(CLP_wt_TPM_wco),file="~/Desktop/200412_CLP_wt_TPM_wco_TPM03_3of3_protCod",sep="\t")
+#write.table(as.matrix(preNKP_wt_TPM_wco),file="~/Desktop/200412_preNKP_wt_TPM_wco_TPM03_3of3_protCod",sep="\t")
+#write.table(as.matrix(rNKP_wt_TPM_wco),file="~/Desktop/200412_rNKP_wt_TPM_wco_TPM03_3of3_protCod",sep="\t")
+#write.table(as.matrix(CLP_KO_TPM_wco),file="~/Desktop/200412_CLP_KO_TPM_wco_TPM03_3of3_protCod",sep="\t")
+#write.table(as.matrix(preNKP_KO_TPM_wco),file="~/Desktop/200412_preNKP_KO_TPM_wco_TPM03_3of3_protCod",sep="\t")
+
+#re-load:
+CLP_wt_TPM_wco = read.delim("~/Desktop/NK_input/3of3_protCod_TPM/200412_CLP_wt_TPM_wco_TPM03_3of3_protCod",sep="\t")
+preNKP_wt_TPM_wco = read.delim("~/Desktop/NK_input/3of3_protCod_TPM/200412_preNKP_wt_TPM_wco_TPM03_3of3_protCod",sep="\t")
+rNKP_wt_TPM_wco = read.delim("~/Desktop/NK_input/3of3_protCod_TPM/200412_rNKP_wt_TPM_wco_TPM03_3of3_protCod",sep="\t")
+CLP_KO_TPM_wco = read.delim("~/Desktop/NK_input/3of3_protCod_TPM/200412_CLP_KO_TPM_wco_TPM03_3of3_protCod",sep="\t")
+preNKP_KO_TPM_wco = read.delim("~/Desktop/NK_input/3of3_protCod_TPM/200412_preNKP_KO_TPM_wco_TPM03_3of3_protCod",sep="\t")
+
+```
+
+####Make gene lists of expressed genes for the comparisons
+```{r}
+wt_TPMco_genelist = unique(c(rownames(CLP_wt_TPM_wco), rownames(preNKP_wt_TPM_wco), rownames(rNKP_wt_TPM_wco)))
+KO_TPMco_genelist = unique(c(rownames(CLP_KO_TPM_wco), rownames(preNKP_KO_TPM_wco)))
+CLP_TPMco_genelist = unique(c(rownames(CLP_wt_TPM_wco), rownames(CLP_KO_TPM_wco)))
+preNKP_TPMco_genelist = unique(c(rownames(preNKP_wt_TPM_wco), rownames(preNKP_KO_TPM_wco)))
+all_TPMco_genelist = unique(c(rownames(CLP_wt_TPM_wco), rownames(preNKP_wt_TPM_wco), rownames(rNKP_wt_TPM_wco),rownames(CLP_KO_TPM_wco), rownames(preNKP_KO_TPM_wco)))
+
+```
+
+####Use the TPM cutoff gene lists for the count tables
+```{r}
+wt_counts_TPM_cutoff = merge(x=wt_TPMco_genelist, y=wt_counts, by.x=1, by.y=0, all.x=TRUE)
+rownames(wt_counts_TPM_cutoff) = wt_counts_TPM_cutoff[,1]
+wt_counts_TPM_cutoff = wt_counts_TPM_cutoff[,2:10]
+head(wt_counts_TPM_cutoff)
+
+KO_counts_TPM_cutoff = merge(x=KO_TPMco_genelist, y=KO_counts, by.x=1, by.y=0, all.x=TRUE)
+rownames(KO_counts_TPM_cutoff) = KO_counts_TPM_cutoff[,1]
+KO_counts_TPM_cutoff = KO_counts_TPM_cutoff[,2:6]
+head(KO_counts_TPM_cutoff)
+
+CLP_counts_TPM_cutoff = merge(x=CLP_TPMco_genelist, y=CLP_counts, by.x=1, by.y=0, all.x=TRUE)
+rownames(CLP_counts_TPM_cutoff) = CLP_counts_TPM_cutoff[,1]
+CLP_counts_TPM_cutoff = CLP_counts_TPM_cutoff[,2:6]
+head(CLP_counts_TPM_cutoff)
+
+preNKP_counts_TPM_cutoff = merge(x=preNKP_TPMco_genelist, y=preNKP_counts, by.x=1, by.y=0, all.x=TRUE)
+rownames(preNKP_counts_TPM_cutoff) = preNKP_counts_TPM_cutoff[,1]
+preNKP_counts_TPM_cutoff = preNKP_counts_TPM_cutoff[,2:7]
+head(preNKP_counts_TPM_cutoff)
+
+all_counts_TPM_cutoff = merge(x=all_TPMco_genelist, y=counts, by.x=1, by.y=0, all.x=TRUE)
+rownames(all_counts_TPM_cutoff) = all_counts_TPM_cutoff[,1]
+all_counts_TPM_cutoff = all_counts_TPM_cutoff[,2:15]
+head(all_counts_TPM_cutoff)
+
+nrow(wt_counts_TPM_cutoff)
+nrow(KO_counts_TPM_cutoff)
+nrow(CLP_counts_TPM_cutoff)
+nrow(preNKP_counts_TPM_cutoff)
+nrow(all_counts_TPM_cutoff)
+nrow(counts)
+```
+
+####edgeR (DEG) analysis
+```{r}
+#For easy manipulation, we put the data into a DGEList object:
+y_wt=DGEList(wt_counts_TPM_cutoff)
+y_KO=DGEList(KO_counts_TPM_cutoff)
+y_CLP=DGEList(CLP_counts_TPM_cutoff)
+y_preNKP=DGEList(preNKP_counts_TPM_cutoff)
+
+#TMM normalization is applied to this dataset to account for compositional difference between the libraries.
+y_wt = calcNormFactors(y_wt)
+y_KO = calcNormFactors(y_KO)
+y_CLP = calcNormFactors(y_CLP)
+y_preNKP = calcNormFactors(y_preNKP)
+```
+
+```{r}
+#Before we fit negative binomial generalized linear models (GLMs), we need to define our design matrix based on the experimental design:
+Mouse_wt <- factor(c(1,3,4,1,3,4,1,3,4))
+Mouse_KO <- factor(c(9,10,8,9,10))
+Mouse_CLP <- factor(c(1,3,4,9,10))
+Mouse_preNKP <- factor(c(1,3,4,8,9,10))
+
+Celltype_wt <- factor(c("CLP","CLP","CLP","preNKP","preNKP","preNKP","rNKP","rNKP","rNKP"))
+Celltype_KO <- factor(c("CLP","CLP","preNKP","preNKP","preNKP"))
+Genotype_CLP <- factor(c("WT","WT","WT","KO", "KO"))
+Genotype_preNKP <- factor(c("WT","WT","WT","KO","KO","KO"))
+
+design_wt <- model.matrix(~Mouse_wt+Celltype_wt)
+design_KO <- model.matrix(~Mouse_KO+Celltype_KO)
+design_CLP <- model.matrix(~Genotype_CLP)
+design_preNKP <- model.matrix(~Genotype_preNKP)
+
+rownames(design_wt) <- colnames(y_wt)
+rownames(design_KO) <- colnames(y_KO)
+rownames(design_CLP) <- colnames(y_CLP)
+rownames(design_preNKP) <- colnames(y_preNKP)
+
+#print the design matrix:
+design_wt
+design_KO
+design_CLP
+design_preNKP
+```
+
+```{r}
+#First we estimate the overall dispersion for the dataset, to get an idea of the overall level of biological variability:
+y_wt <- estimateGLMCommonDisp(y_wt, design=design_wt, verbose=TRUE)
+y_KO <- estimateGLMCommonDisp(y_KO, design=design_KO, verbose=TRUE)
+y_CLP <- estimateGLMCommonDisp(y_CLP, design=design_CLP, verbose=TRUE)
+y_preNKP <- estimateGLMCommonDisp(y_preNKP, design=design_preNKP, verbose=TRUE)
+
+#Now proceed to determine differentially expressed genes. Fit genewise GLMs
+fit_wt <- glmFit(y_wt, design_wt)
+fit_KO <- glmFit(y_KO, design_KO)
+fit_CLP <- glmFit(y_CLP, design_CLP)
+fit_preNKP <- glmFit(y_preNKP, design_preNKP)
+```
+
+```{r}
+#Conduct likelihood ratio tests for differences in treatments and show the top genes:
+
+#wt comparisons (CLP is base!):
+lrt_wt_PvsC <- glmLRT(fit_wt, coef=4)
+topTags(lrt_wt_PvsC)
+summary(decideTestsDGE(lrt_wt_PvsC))
+
+lrt_wt_RvsP <- glmLRT(fit_wt, contrast=c(0,0,0,-1,1))
+topTags(lrt_wt_RvsP)
+summary(decideTestsDGE(lrt_wt_RvsP))
+
+lrt_wt_RvsC <- glmLRT(fit_wt, coef=5)
+topTags(lrt_wt_RvsC)
+summary(decideTestsDGE(lrt_wt_RvsC))
+```
+
+```{r}
+#KO comparisons (CLP is base!):
+lrt_KO_PvsC <- glmLRT(fit_KO, coef=4)
+topTags(lrt_KO_PvsC)
+summary(decideTestsDGE(lrt_KO_PvsC))
+```
+
+```{r}
+#CLP comparisons (KO is base!):
+lrt_CLP_WTvsKO <- glmLRT(fit_CLP, coef=2)
+topTags(lrt_CLP_WTvsKO)
+summary(decideTestsDGE(lrt_CLP_WTvsKO))
+
+```
+
+```{r}
+#preNKP comparisons (KO is base!):
+lrt_preNKP_WTvsKO <- glmLRT(fit_preNKP, coef=2)
+topTags(lrt_preNKP_WTvsKO)
+summary(decideTestsDGE(lrt_preNKP_WTvsKO))
+
+```
+
+####Add official gene symbols to lists and write the results of the DE analysis to a table:
+```{r}
+results_wt_PvsC <- topTags(lrt_wt_PvsC,n = length(y_wt$counts[,1]))
+results_wt_RvsP <- topTags(lrt_wt_RvsP,n = length(y_wt$counts[,1]))
+results_wt_RvsC <- topTags(lrt_wt_RvsC,n = length(y_wt$counts[,1]))
+
+results_KO_PvsC <- topTags(lrt_KO_PvsC,n = length(y_wt$counts[,1]))
+results_CLP_WTvsKO <- topTags(lrt_CLP_WTvsKO,n = length(y_CLP$counts[,1]))
+results_preNKP_WTvsKO <- topTags(lrt_preNKP_WTvsKO,n = length(y_CLP$counts[,1]))
+```
+
+```{r}
+mart <- useMart("ENSEMBL_MART_ENSEMBL", dataset = "mmusculus_gene_ensembl",host="www.ensembl.org")
+ensembl2name <- getBM(attributes=c("ensembl_gene_id","external_gene_name"),mart=mart)
+```
+
+```{r}
+results_wt_PvsC <- merge(x=results_wt_PvsC$table, y=ensembl2name, by.x=0, by.y=1, all.x=TRUE)
+results_wt_RvsP <- merge(x=results_wt_RvsP$table, y=ensembl2name, by.x=0, by.y=1, all.x=TRUE)
+results_wt_RvsC <- merge(x=results_wt_RvsC$table, y=ensembl2name, by.x=0, by.y=1, all.x=TRUE)
+
+results_KO_PvsC <- merge(x=results_KO_PvsC$table, y=ensembl2name, by.x=0, by.y=1, all.x=TRUE)
+results_CLP_WTvsKO <- merge(x=results_CLP_WTvsKO$table, y=ensembl2name, by.x=0, by.y=1, all.x=TRUE)
+results_preNKP_WTvsKO <- merge(x=results_preNKP_WTvsKO$table, y=ensembl2name, by.x=0, by.y=1, all.x=TRUE)
+```
+
+````{r}
+#write.table(as.matrix(results_wt_PvsC),file="~/Desktop/200412_wt_PvsC_DEG_TPM03co_3of3_protCod",sep="\t")
+#write.table(as.matrix(results_wt_RvsP),file="~/Desktop/200412_wt_RvsP_DEG_TPM03co_3of3_protCod",sep="\t")
+#write.table(as.matrix(results_wt_RvsC),file="~/Desktop/200707_wt_RvsC_DEG_TPM03co_3of3_protCod",sep="\t")
+
+
+#write.table(as.matrix(results_KO_PvsC),file="~/Desktop/200412_KO_PvsC_DEG_TPM03co_3of3_protCod",sep="\t")
+#write.table(as.matrix(results_CLP_WTvsKO),file="~/Desktop/200412_CLP_WTvsKO_DEG_TPM03co_3of3_protCod",sep="\t")
+#write.table(as.matrix(results_preNKP_WTvsKO),file="~/Desktop/200412_preNKP_WTvsKO_DEG_TPM03co_3of3_protCod",sep="\t")
+```
+
+####Export normalized count values
+```{r}
+##write.table(as.matrix(fit_wt$fitted.values),file="~/Desktop/200410_wt_norm_TPM05co.counts",sep="\t")
+##write.table(as.matrix(fit_KO$fitted.values),file="~/Desktop/200410_KO_norm_TPM05co.counts",sep="\t")
+##write.table(as.matrix(fit_CLP$fitted.values),file="~/Desktop/200410_CLP_norm_TPM05co.counts",sep="\t")
+##write.table(as.matrix(fit_preNKP$fitted.values),file="~/Desktop/200410_preNKP_norm_TPM05co.counts",sep="\t")
+```
+
+####load list of genes to highlight
+```{r}
+highlight = read.delim("~/Desktop/NK_input/200412_highlight_genes.txt", row.names = 1)
+```
+
+
+####Re-load data and merge with TPM table
+```{r}
+vp_wt_PvsC = read.delim("~/Desktop/NK_input/3of3_protCod_DEG/200412_wt_PvsC_DEG_TPM03co_3of3_protCod", row.names = 2)
+vp_wt_PvsC_TPM =merge(x=vp_wt_PvsC, y=TPM, by.x=0, by.y=0, all.x=TRUE)
+rownames(vp_wt_PvsC_TPM) = vp_wt_PvsC_TPM[,1]
+vp_wt_PvsC_TPM = vp_wt_PvsC_TPM[,3:14]
+
+vp_wt_RvsP = read.delim("~/Desktop/NK_input/3of3_protCod_DEG/200412_wt_RvsP_DEG_TPM03co_3of3_protCod", row.names = 2)
+vp_wt_RvsP_TPM =merge(x=vp_wt_RvsP, y=TPM, by.x=0, by.y=0, all.x=TRUE)
+rownames(vp_wt_RvsP_TPM) = vp_wt_RvsP_TPM[,1]
+vp_wt_RvsP_TPM = vp_wt_RvsP_TPM[,c(3:8, 12:17)]
+
+vp_wt_RvsC = read.delim("~/Desktop/NK_input/3of3_protCod_DEG/200707_wt_RvsC_DEG_TPM03co_3of3_protCod", row.names = 2)
+vp_wt_RvsC_TPM =merge(x=vp_wt_RvsC, y=TPM, by.x=0, by.y=0, all.x=TRUE)
+rownames(vp_wt_RvsC_TPM) = vp_wt_RvsC_TPM[,1]
+vp_wt_RvsC_TPM = vp_wt_RvsC_TPM[,c(3:11, 15:17)]
+```
+
+###make a new column with average TPM per condition
+```{r}
+vp_wt_PvsC_TPM$CLP_wt_ave = rowMeans(vp_wt_PvsC_TPM[,7:9])
+vp_wt_PvsC_TPM$preNKP_wt_ave = rowMeans(vp_wt_PvsC_TPM[,10:12])
+vp_wt_PvsC_TPM$CP_wt_ave = rowMeans(vp_wt_PvsC_TPM[,7:12])
+
+vp_wt_RvsP_TPM$preNKP_wt_ave = rowMeans(vp_wt_RvsP_TPM[,7:9])
+vp_wt_RvsP_TPM$rNKP_wt_ave = rowMeans(vp_wt_RvsP_TPM[,10:12])
+vp_wt_RvsP_TPM$RP_wt_ave = rowMeans(vp_wt_RvsP_TPM[,7:12])
+
+vp_wt_RvsC_TPM$CLP_wt_ave = rowMeans(vp_wt_RvsP_TPM[,7:9])
+vp_wt_RvsC_TPM$rNKP_wt_ave = rowMeans(vp_wt_RvsP_TPM[,10:12])
+vp_wt_RvsC_TPM$RC_wt_ave = rowMeans(vp_wt_RvsP_TPM[,7:12])
+```
+
+####Volcano plot (Fig. 1E,1)
+```{r}
+#results <- topTags(lrt_wt_PvsC,n = length(y_wt$counts[,1]))
+#vp=results$table
+vp = vp_wt_PvsC_TPM
+
+vp_sub = subset(vp_wt_PvsC_TPM, rownames(vp_wt_PvsC_TPM) %in% rownames(highlight))
+vp_sub = subset(vp_sub, abs(logFC)>log2(2) & FDR<0.05)
+vp_sub = merge(x=vp_sub, y=highlight, by.x=0, by.y=0, all.x=TRUE)
+
+vp_sign_sub_up = subset(vp, logFC>1 & FDR<0.05)
+vp_sign_sub_dn = subset(vp, logFC<(-1) & FDR<0.05)
+
+vp_dn_sub = subset(vp_wt_PvsC_TPM, rownames(vp_wt_PvsC_TPM) %in% rownames(highlight))
+vp_dn_sub = subset(vp_dn_sub, logFC<(-1) & FDR<0.05)
+vp_dn_sub = merge(x=vp_dn_sub, y=highlight, by.x=0, by.y=0, all.x=TRUE)
+rownames(vp_dn_sub) = vp_dn_sub$Row.names
+
+vp_up_sub = subset(vp_wt_PvsC_TPM, rownames(vp_wt_PvsC_TPM) %in% rownames(highlight))
+vp_up_sub = subset(vp_up_sub, logFC>1 & FDR<0.05)
+vp_up_sub = merge(x=vp_up_sub, y=highlight, by.x=0, by.y=0, all.x=TRUE)
+rownames(vp_up_sub) = vp_up_sub$Row.names
+
+vp_sign_sub_up = subset(vp_sign_sub_up, !(rownames(vp_sign_sub_up) %in% rownames(vp_up_sub)))
+vp_sign_sub_dn = subset(vp_sign_sub_dn, !(rownames(vp_sign_sub_dn) %in% rownames(vp_dn_sub)))
+
+vp_non_sign = subset(vp, FDR>0.05 | abs(logFC)<1)
+
+vp_plot= ggplot(vp) +
+  geom_point(
+      data = vp_non_sign,
+      aes(x = logFC, y = -log10(FDR)),
+      alpha = 0.2,
+      color = "grey",
+      cex = 1
+    ) +
+  geom_point(
+      data = subset(vp_sign_sub_up),
+      aes(x = logFC, y = -log10(FDR), size = log2(vp_sign_sub_up$preNKP_wt_ave+1)),
+      alpha = 0.2,
+      fill = "lightblue",
+      color = "lightblue",
+      pch = 21
+    ) +
+    geom_point(
+      data = subset(vp_sign_sub_dn),
+      aes(x = logFC, y = -log10(FDR), size = log2(vp_sign_sub_dn$CLP_wt_ave+1)),
+      alpha = 0.8,
+      fill = "lightyellow",
+      color = "lightyellow",
+      pch = 21
+    ) +
+  geom_point(
+      data = vp_up_sub,
+      aes(x = logFC, y = -log10(FDR), size = log2(vp_up_sub$preNKP_wt_ave+1)),
+      fill = "blue",
+      alpha = 0.6,
+      color = "black",
+      pch = 21
+    ) +
+    geom_point(
+      data = vp_dn_sub,
+      aes(x = logFC, y = -log10(FDR), size = log2(vp_dn_sub$CLP_wt_ave+1)),
+      fill = "yellow",
+      alpha = 0.6,
+      color = "black",
+      pch = 21
+    ) +
+  geom_text_repel(
+      data = vp_sub,
+      aes(x = logFC, y = -log10(FDR), label=gene_name),
+      size = 5,
+      min.segment.length = 0, #use to always put a line
+      box.padding = unit(0.35, "lines"),
+      point.padding = unit(0.3, "lines")
+    ) +
+    theme_bw(base_size = 14) +
+    labs(size="log2(TPM+1)", x = "logFC") +
+    guides(size=guide_legend(override.aes=list(fill="white"))) +
+    ggtitle("wt_PvsC")
+
+vp_plot
+```
+
+####Volcano plot (Fig. 1E,2)
+```{r}
+# set values outside axis limits to Inf
+upper_FDR_limit = 35
+upper_logFC_limit = 10
+lower_logFC_limit = -10
+vp_wt_RvsP_TPM_limits = vp_wt_RvsP_TPM
+vp_wt_RvsP_TPM_limits$logFDR = -log10(vp_wt_RvsP_TPM$FDR)
+vp_wt_RvsP_TPM_limits$logFDR[vp_wt_RvsP_TPM_limits$logFDR > upper_FDR_limit] = Inf
+vp_wt_RvsP_TPM_limits$logFC[vp_wt_RvsP_TPM_limits$logFC > upper_logFC_limit] = upper_logFC_limit
+vp_wt_RvsP_TPM_limits$logFC[vp_wt_RvsP_TPM_limits$logFC < lower_logFC_limit] = lower_logFC_limit
+```
+
+
+```{r}
+vp = vp_wt_RvsP_TPM_limits
+
+vp_sub = subset(vp_wt_RvsP_TPM_limits, rownames(vp_wt_RvsP_TPM_limits) %in% rownames(highlight))
+vp_sub = subset(vp_sub, abs(logFC)>log2(2) & FDR<0.05)
+vp_sub = merge(x=vp_sub, y=highlight, by.x=0, by.y=0, all.x=TRUE)
+
+vp_sign_sub_up = subset(vp, logFC>1 & FDR<0.05)
+vp_sign_sub_dn = subset(vp, logFC<(-1) & FDR<0.05)
+
+vp_dn_sub = subset(vp_wt_RvsP_TPM_limits, rownames(vp_wt_RvsP_TPM_limits) %in% rownames(highlight))
+vp_dn_sub = subset(vp_dn_sub, logFC<(-1) & FDR<0.05)
+vp_dn_sub = merge(x=vp_dn_sub, y=highlight, by.x=0, by.y=0, all.x=TRUE)
+rownames(vp_dn_sub) = vp_dn_sub$Row.names
+
+vp_up_sub = subset(vp_wt_RvsP_TPM_limits, rownames(vp_wt_RvsP_TPM_limits) %in% rownames(highlight))
+vp_up_sub = subset(vp_up_sub, logFC>1 & FDR<0.05)
+vp_up_sub = merge(x=vp_up_sub, y=highlight, by.x=0, by.y=0, all.x=TRUE)
+rownames(vp_up_sub) = vp_up_sub$Row.names
+
+vp_sign_sub_up = subset(vp_sign_sub_up, !(rownames(vp_sign_sub_up) %in% rownames(vp_up_sub)))
+vp_sign_sub_dn = subset(vp_sign_sub_dn, !(rownames(vp_sign_sub_dn) %in% rownames(vp_dn_sub)))
+
+
+vp_non_sign = subset(vp, FDR>0.05 | abs(logFC)<1)
+
+vp_plot= ggplot() +
+  geom_point(
+      data = vp_non_sign,
+      aes(x = logFC, y = logFDR),
+      alpha = 0.2,
+      color = "grey",
+      cex = 1
+    ) +
+  geom_point(
+      data = subset(vp_sign_sub_up),
+      aes(x = logFC, y = logFDR, size = log2(vp_sign_sub_up$rNKP_wt_ave+1)),
+      alpha = 0.2,
+      fill = "lightgreen",
+      color = "lightgreen",
+      pch = 21
+    ) +
+    geom_point(
+      data = subset(vp_sign_sub_dn),
+      aes(x = logFC, y = logFDR, size = log2(vp_sign_sub_dn$preNKP_wt_ave+1)),
+      alpha = 0.2,
+      fill = "lightblue",
+      color = "lightblue",
+      pch = 21
+    ) +
+  geom_point(
+      data = vp_up_sub,
+      aes(x = logFC, y = logFDR, size = log2(vp_up_sub$rNKP_wt_ave+1)),
+      fill = "darkgreen",
+      alpha = 0.6,
+      color = "black",
+      pch = 21
+    ) +
+    geom_point(
+      data = vp_dn_sub,
+      aes(x = logFC, y = logFDR, size = log2(vp_dn_sub$preNKP_wt_ave+1)),
+      fill = "blue",
+      alpha = 0.6,
+      color = "black",
+      pch = 21
+    ) +
+  geom_text_repel(
+      data = vp_sub,
+      aes(x = logFC, y = logFDR, label=gene_name),
+      size = 5,
+      min.segment.length = 0, #use to always put a line
+      box.padding = unit(0.35, "lines"),
+      point.padding = unit(0.3, "lines")
+    ) +
+    theme_bw(base_size = 14) +
+    labs(size="log2(TPM+1)", x = "logFC", y = "-log10(FDR)") +
+    guides(size=guide_legend(override.aes=list(fill="white"))) +
+    ggtitle("wt_RvsP")
+
+vp_plot
+```
+
+####Volcano plot (Fig. 1E,3)
+
+```{r}
+# set values outside axis limits to Inf
+upper_FDR_limit = 70
+upper_logFC_limit = 15
+lower_logFC_limit = -15
+vp_wt_RvsC_TPM_limits = vp_wt_RvsC_TPM
+vp_wt_RvsC_TPM_limits$logFDR = -log10(vp_wt_RvsC_TPM$FDR)
+vp_wt_RvsC_TPM_limits$logFDR[vp_wt_RvsC_TPM_limits$logFDR > upper_FDR_limit] = Inf
+vp_wt_RvsC_TPM_limits$logFC[vp_wt_RvsC_TPM_limits$logFC > upper_logFC_limit] = upper_logFC_limit
+vp_wt_RvsC_TPM_limits$logFC[vp_wt_RvsC_TPM_limits$logFC < lower_logFC_limit] = lower_logFC_limit
+```
+
+
+```{r}
+vp = vp_wt_RvsC_TPM_limits
+
+vp_sub = subset(vp_wt_RvsC_TPM_limits, rownames(vp_wt_RvsC_TPM_limits) %in% rownames(highlight))
+vp_sub = subset(vp_sub, abs(logFC)>log2(2) & FDR<0.05)
+vp_sub = merge(x=vp_sub, y=highlight, by.x=0, by.y=0, all.x=TRUE)
+
+vp_sign_sub_up = subset(vp, logFC>1 & FDR<0.05)
+vp_sign_sub_dn = subset(vp, logFC<(-1) & FDR<0.05)
+
+vp_dn_sub = subset(vp_wt_RvsC_TPM_limits, rownames(vp_wt_RvsC_TPM_limits) %in% rownames(highlight))
+vp_dn_sub = subset(vp_dn_sub, logFC<(-1) & FDR<0.05)
+vp_dn_sub = merge(x=vp_dn_sub, y=highlight, by.x=0, by.y=0, all.x=TRUE)
+rownames(vp_dn_sub) = vp_dn_sub$Row.names
+
+vp_up_sub = subset(vp_wt_RvsC_TPM_limits, rownames(vp_wt_RvsC_TPM_limits) %in% rownames(highlight))
+vp_up_sub = subset(vp_up_sub, logFC>1 & FDR<0.05)
+vp_up_sub = merge(x=vp_up_sub, y=highlight, by.x=0, by.y=0, all.x=TRUE)
+rownames(vp_up_sub) = vp_up_sub$Row.names
+
+vp_sign_sub_up = subset(vp_sign_sub_up, !(rownames(vp_sign_sub_up) %in% rownames(vp_up_sub)))
+vp_sign_sub_dn = subset(vp_sign_sub_dn, !(rownames(vp_sign_sub_dn) %in% rownames(vp_dn_sub)))
+
+vp_non_sign = subset(vp, FDR>0.05 | abs(logFC)<1)
+
+vp_plot= ggplot() +
+  geom_point(
+      data = vp_non_sign,
+      aes(x = logFC, y = logFDR),
+      alpha = 0.2,
+      color = "grey",
+      cex = 1
+    ) +
+  geom_point(
+      data = subset(vp_sign_sub_up),
+      aes(x = logFC, y = logFDR, size = log2(vp_sign_sub_up$rNKP_wt_ave+1)),
+      alpha = 0.2,
+      fill = "lightgreen",
+      color = "lightgreen",
+      pch = 21
+    ) +
+    geom_point(
+      data = subset(vp_sign_sub_dn),
+      aes(x = logFC, y = logFDR, size = log2(vp_sign_sub_dn$CLP_wt_ave+1)),
+      alpha = 0.8,
+      fill = "lightyellow",
+      color = "lightyellow",
+      pch = 21
+    ) +
+  geom_point(
+      data = vp_up_sub,
+      aes(x = logFC, y = logFDR, size = log2(vp_up_sub$rNKP_wt_ave+1)),
+      fill = "darkgreen",
+      alpha = 0.6,
+      color = "black",
+      pch = 21
+    ) +
+    geom_point(
+      data = vp_dn_sub,
+      aes(x = logFC, y = logFDR, size = log2(vp_dn_sub$CLP_wt_ave+1)),
+      fill = "yellow",
+      alpha = 0.6,
+      color = "black",
+      pch = 21
+    ) +
+  geom_text_repel(
+      data = vp_sub,
+      aes(x = logFC, y = logFDR, label=gene_name),
+      size = 5,
+      min.segment.length = 0, #use to always put a line
+      box.padding = unit(0.35, "lines"),
+      point.padding = unit(0.3, "lines")
+    ) +
+    theme_bw(base_size = 14) +
+    labs(size="log2(TPM+1)", x = "logFC", y = "-log10(FDR)") +
+    guides(size=guide_legend(override.aes=list(fill="white"))) +
+    ggtitle("wt_RvsC")
+
+vp_plot
+```
+
+
+####Volcano plot (Fig. 5B)
+```{r}
+results <- topTags(lrt_preNKP_WTvsKO,n = length(y_wt$counts[,1]))
+vp=results$table
+vp$logFC = vp$logFC*-1
+  
+vp_sub = subset(vp, rownames(vp) %in% rownames(highlight))
+vp_sub = subset(vp_sub, abs(logFC)>log2(2) & FDR<0.05)
+rorc = subset(vp, rownames(vp) == 'ENSMUSG00000028150')
+vp_sub = rbind(vp_sub, rorc)
+vp_sub = merge(x=vp_sub, y=highlight, by.x=0, by.y=0, all.x=TRUE)
+
+vp_plot= ggplot(vp) +
+  geom_point(
+      data = vp,
+      aes(x = logFC, y = -log10(FDR)),
+      color = "grey",
+      cex = 1
+    ) +
+  geom_point(
+      data = subset(vp, abs(logFC)>log2(2) & FDR<0.05),
+      aes(x = logFC, y = -log10(FDR)),
+      color = "red",
+      cex = 1
+    ) +
+  geom_point(
+      data = vp_sub,
+      aes(x = logFC, y = -log10(FDR)),
+      color = "darkred",
+      cex = 2
+    ) +
+  geom_text_repel(
+      data = vp_sub,
+      aes(x = logFC, y = -log10(FDR), label=gene_name),
+      size = 5,
+      box.padding = unit(0.35, "lines"),
+      point.padding = unit(0.3, "lines")
+    ) +
+    theme_bw(base_size = 14) +
+    ggtitle("preNKP_KOvsWT")
+
+vp_plot
+```
+
+####Volcano high input RNA seq (Fig. 4B)
+```{r}
+Fig4 = read.delim("~/Desktop/200618_CLPnegWT_vs_CLPnegdKO.txt", row.names = 1)
+```
+
+```{r}
+# set values outside axis limits to Inf
+upper_FDR_limit = 25
+upper_logFC_limit = 10
+lower_logFC_limit = -10
+
+Fig4_limits = Fig4
+Fig4_limits$logFDR = -log10(Fig4_limits$padj)
+Fig4_limits$logFDR[Fig4_limits$logFDR > upper_FDR_limit] = Inf
+
+Fig4_limits$logFC[Fig4_limits$logFC > upper_logFC_limit] = upper_logFC_limit
+Fig4_limits$logFC[Fig4_limits$logFC < lower_logFC_limit] = lower_logFC_limit
+```
+
+```{r}
+vp=Fig4_limits
+
+vp_sub = subset(vp, vp$gene_id %in% highlight$gene_name)
+vp_sub = subset(vp_sub, abs(logFC)>log2(2) & padj<0.05)
+vp_sub = merge(x=vp_sub, y=highlight, by.x=0, by.y=0, all.x=TRUE)
+
+vp_plot= ggplot(vp) +
+  geom_point(
+      data = vp,
+      aes(x = logFC, y = logFDR),
+      color = "grey",
+      cex = 1
+    ) +
+  geom_point(
+      data = subset(vp, abs(logFC)>log2(2) & padj<0.05),
+      aes(x = logFC, y = logFDR),
+      color = "red",
+      cex = 1
+    ) +
+  geom_point(
+      data = vp_sub,
+      aes(x = logFC, y = logFDR),
+      color = "darkred",
+      cex = 2
+    ) +
+  geom_text_repel(
+      data = vp_sub,
+      aes(x = logFC, y = logFDR, label=gene_id),
+      size = 5,
+      box.padding = unit(0.35, "lines"),
+      point.padding = unit(0.3, "lines")
+    ) +
+    theme_bw(base_size = 14) +
+    ylab("-log10(adjusted p value)") +
+    xlab("log2FC") +
+    ggtitle("CLPnegWT_vs_CLPnegdKO")
+
+vp_plot
+```
+
+
+####PCA for WT (Fig. 1B)
+````{r}
+par(pty="s") #make the plot square
+col.def<-c("gold","gold","gold","blue","blue","blue","darkgreen","darkgreen","darkgreen")
+colors <- col.def
+
+#wt:
+PCA_norm<- prcomp(t(log2(fit_wt$fitted.values+1)))
+Matrix_norm <- summary(PCA_norm)
+
+plot(PCA_norm$x[,1],PCA_norm$x[,2],col=colors,pch=20,xlab=paste0("PC1 (", round(Matrix_norm$importance[2,1]*100), "%)"),ylab=paste0("PC2 (", round(Matrix_norm$importance[2,2]*100),"%)"),cex=4)
+#text(PCA_norm$x[,1],PCA_norm$x[,2],labels=colnames(fit_wt$fitted.values), pos=2, cex=0.5)
+
+plot(PCA_norm$x[,3],PCA_norm$x[,4],col=colors,pch=20,xlab=paste0("PC3 ", round(Matrix_norm$importance[2,3]*100), "%"),ylab=paste0("PC4 ", round(Matrix_norm$importance[2,4]*100),"%"),cex=2)
+#text(PCA_norm$x[,3],PCA_norm$x[,4],labels=colnames(fit_wt$fitted.values),pos=list(1), cex=0.5)
+```
+
+####PCA for all samples together (Fig S8A)
+```{r}
+y_all=DGEList(all_counts_TPM_cutoff)
+y_all = calcNormFactors(y_all)
+Mouse <- factor(c(1,3,4,1,3,4,1,3,4,9,10,8,9,10))
+Celltype <- factor(c("CLP","CLP","CLP","preNKP","preNKP","preNKP","rNKP","rNKP","rNKP","CLP","CLP","preNKP_KO","preNKP_KO","preNKP_KO"))
+design_y_all <- model.matrix(~Mouse+Celltype)
+rownames(design_y_all) <- colnames(y_all)
+y_all <- estimateGLMCommonDisp(y_all, design=design_y_all, verbose=TRUE)
+
+fit_all <- glmFit(y_all, design_y_all)
+
+```
+
+```{r}
+par(pty="s") #make the plot square
+col.def<-c("gold","gold","gold","blue","blue","blue","darkgreen","darkgreen","darkgreen","purple","purple","orange","orange","orange")
+colors <- col.def
+
+PCA_norm<- prcomp(t(log2(fit_all$fitted.values+1)))
+Matrix_norm <- summary(PCA_norm)
+
+plot(PCA_norm$x[,1],PCA_norm$x[,2],col=colors,pch=20,xlab=paste0("PC1 (", round(Matrix_norm$importance[2,1]*100), "%)"),ylab=paste0("PC2 (", round(Matrix_norm$importance[2,2]*100),"%)"),cex=4)
+
+plot(PCA_norm$x[,1],PCA_norm$x[,2],col=colors,pch=20,xlab=paste0("PC1 (", round(Matrix_norm$importance[2,1]*100), "%)"),ylab=paste0("PC2 (", round(Matrix_norm$importance[2,2]*100),"%)"),cex=4)
+text(PCA_norm$x[,1],PCA_norm$x[,2],labels="", pos=2, cex=0.5)
+
+plot(PCA_norm$x[,3],PCA_norm$x[,4],col=colors,pch=20,xlab=paste0("PC3 ", round(Matrix_norm$importance[2,3]*100), "%"),ylab=paste0("PC4 ", round(Matrix_norm$importance[2,4]*100),"%"),cex=2)
+```
+
+####preNKP PCA (Fig. 5A)
+```{r}
+par(pty="s") #make the plot square
+col.def<-c("blue","blue","blue","orange","orange","orange")
+colors <- col.def
+
+PCA_norm<- prcomp(t(log2(fit_preNKP$fitted.values+1)))
+Matrix_norm <- summary(PCA_norm)
+
+plot(PCA_norm$x[,1],PCA_norm$x[,2],col=colors,pch=20,xlab=paste0("PC1 (", round(Matrix_norm$importance[2,1]*100), "%)"),ylab=paste0("PC2 (", round(Matrix_norm$importance[2,2]*100),"%)"),cex=4)
+#text(PCA_norm$x[,1],PCA_norm$x[,2],labels=colnames(fit_preNKP$fitted.values), pos=2, cex=0.5)
+
+plot(PCA_norm$x[,3],PCA_norm$x[,4],col=colors,pch=20,xlab=paste0("PC3 ", round(Matrix_norm$importance[2,3]*100), "%"),ylab=paste0("PC4 ", round(Matrix_norm$importance[2,4]*100),"%"),cex=4)
+text(PCA_norm$x[,3],PCA_norm$x[,4],labels=colnames(fit_preNKP$fitted.values),pos=list(1), cex=0.5)
+```
+
+#Gene Ontology and KEGG Pathway Analysis
+###Note: It's better to use ENSEMBL or ENTREZ IDs for the GO analysis. The clusterProfiler package only accepts ENTREZ IDs for KEGG pathway analysis.
+
+```{r}
+#select significant genes that are 2 fold up or downregulated:
+results_wt_PvsC_sig = results_wt_PvsC[results_wt_PvsC$FDR<0.05 & results_wt_PvsC$logFC>1 | results_wt_PvsC$FDR<0.05 & results_wt_PvsC$logFC<(-1),]
+nrow(results_wt_PvsC_sig)
+
+results_wt_RvsP_sig = results_wt_RvsP[results_wt_RvsP$FDR<0.05 & results_wt_RvsP$logFC>1 | results_wt_RvsP$FDR<0.05 & results_wt_RvsP$logFC<(-1),]
+nrow(results_wt_RvsP_sig)
+
+results_wt_RvsC_sig = results_wt_RvsC[results_wt_RvsC$FDR<0.05 & results_wt_RvsC$logFC>1 | results_wt_RvsC$FDR<0.05 & results_wt_RvsC$logFC<(-1),]
+nrow(results_wt_RvsC_sig)
+
+results_KO_PvsC_sig = results_KO_PvsC[results_KO_PvsC$FDR<0.05 & results_KO_PvsC$logFC>1 | results_KO_PvsC$FDR<0.05 & results_KO_PvsC$logFC<(-1),]
+nrow(results_KO_PvsC_sig)
+#Double-checked on 200611 that edgeR results are excactly the same as from 200412
+```
+
+
+#### Biological Process GO analysis
+```{r}
+results_wt_PvsC_sig_BP <- enrichGO(gene = results_wt_PvsC_sig$Row.names,
+                keyType       = 'ENSEMBL',
+                OrgDb         = org.Mm.eg.db,
+                ont           = "BP",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.05,
+                qvalueCutoff  = 0.05,
+                minGSSize     = 3,
+                readable      = TRUE)
+head(summary(results_wt_PvsC_sig_BP))
+
+results_wt_RvsP_sig_BP <- enrichGO(gene = results_wt_RvsP_sig$Row.names,
+                keyType       = 'ENSEMBL',
+                OrgDb         = org.Mm.eg.db,
+                ont           = "BP",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.05,
+                qvalueCutoff  = 0.05,
+                minGSSize     = 3,
+                readable      = TRUE)
+head(summary(results_wt_RvsP_sig_BP))
+
+results_wt_RvsC_sig_BP <- enrichGO(gene = results_wt_RvsC_sig$Row.names,
+                keyType       = 'ENSEMBL',
+                OrgDb         = org.Mm.eg.db,
+                ont           = "BP",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.05,
+                qvalueCutoff  = 0.05,
+                minGSSize     = 3,
+                readable      = TRUE)
+head(summary(results_wt_RvsC_sig_BP))
+
+results_KO_PvsC_sig_BP <- enrichGO(gene = results_KO_PvsC_sig$Row.names,
+                keyType       = 'ENSEMBL',
+                OrgDb         = org.Mm.eg.db,
+                ont           = "BP",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.05,
+                qvalueCutoff  = 0.05,
+                minGSSize     = 3,
+                readable      = TRUE)
+head(summary(results_KO_PvsC_sig_BP))
+
+```
+
+```{r}
+#Plot top 15 BPs as dotplots
+dotplot(results_wt_PvsC_sig_BP, showCategory=15)
+dotplot(results_wt_RvsP_sig_BP, showCategory=15)
+dotplot(results_wt_RvsC_sig_BP, showCategory=15)
+dotplot(results_KO_PvsC_sig_BP, showCategory=15)
+```
+
+```{r}
+#Plot top 5 BPs as a cnetplot (GO terms are in brown bubbles, and gene names are in grey bubbles)
+cnetplot(results_wt_PvsC_sig_BP, 5)
+cnetplot(results_wt_RvsP_sig_BP, 5)
+cnetplot(results_wt_RvsC_sig_BP, 5)
+cnetplot(results_KO_PvsC_sig_BP, 5)
+```
+
+```{r}
+##write the analysis results to file:
+#write.table(as.matrix(summary(results_wt_PvsC_sig_BP)),file="~/Desktop/200611_results_wt_PvsC_sig_BP.txt",sep="\t")
+#write.table(as.matrix(summary(results_wt_RvsP_sig_BP)),file="~/Desktop/200707_results_wt_RvsP_sig_BP.txt",sep="\t")
+#write.table(as.matrix(summary(results_wt_RvsC_sig_BP)),file="~/Desktop/200707_results_wt_RvsC_sig_BP.txt",sep="\t")
+#write.table(as.matrix(summary(results_KO_PvsC_sig_BP)),file="~/Desktop/200611_results_KO_PvsC_sig_BP.txt",sep="\t")
+```
+
+#### Molecular Functions GO analysis
+```{r}
+results_wt_PvsC_sig_MF <- enrichGO(gene = results_wt_PvsC_sig$Row.names,
+                keyType       = 'ENSEMBL',
+                OrgDb         = org.Mm.eg.db,
+                ont           = "MF",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.05,
+                qvalueCutoff  = 0.05,
+                minGSSize     = 3,
+                readable      = TRUE)
+head(summary(results_wt_PvsC_sig_MF))
+
+results_wt_RvsP_sig_MF <- enrichGO(gene = results_wt_RvsP_sig$Row.names,
+                keyType       = 'ENSEMBL',
+                OrgDb         = org.Mm.eg.db,
+                ont           = "MF",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.05,
+                qvalueCutoff  = 0.05,
+                minGSSize     = 3,
+                readable      = TRUE)
+head(summary(results_wt_RvsP_sig_MF))
+
+results_wt_RvsC_sig_MF <- enrichGO(gene = results_wt_RvsC_sig$Row.names,
+                keyType       = 'ENSEMBL',
+                OrgDb         = org.Mm.eg.db,
+                ont           = "MF",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.05,
+                qvalueCutoff  = 0.05,
+                minGSSize     = 3,
+                readable      = TRUE)
+head(summary(results_wt_RvsC_sig_MF))
+
+results_KO_PvsC_sig_MF <- enrichGO(gene = results_KO_PvsC_sig$Row.names,
+                keyType       = 'ENSEMBL',
+                OrgDb         = org.Mm.eg.db,
+                ont           = "MF",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.05,
+                qvalueCutoff  = 0.05,
+                minGSSize     = 3,
+                readable      = TRUE)
+head(summary(results_KO_PvsC_sig_MF))
+
+```
+
+```{r}
+#Plot top 15 MFs as dotplots
+dotplot(results_wt_PvsC_sig_MF, showCategory=15)
+dotplot(results_wt_RvsP_sig_MF, showCategory=15)
+dotplot(results_wt_RvsC_sig_MF, showCategory=15)
+dotplot(results_KO_PvsC_sig_MF, showCategory=15)
+```
+
+```{r}
+#Plot top 5 MFs as a cnetplot (GO terms are in brown bubbles, and gene names are in grey bubbles)
+cnetplot(results_wt_PvsC_sig_MF, 5)
+cnetplot(results_wt_RvsP_sig_MF, 5)
+cnetplot(results_KO_PvsC_sig_MF, 5)
+```
+
+```{r}
+##write the analysis results to file:
+#write.table(as.matrix(summary(results_wt_PvsC_sig_MF)),file="~/Desktop/200611_results_wt_PvsC_sig_MF.txt",sep="\t")
+#write.table(as.matrix(summary(results_wt_RvsP_sig_MF)),file="~/Desktop/200707_results_wt_RvsP_sig_MF.txt",sep="\t")
+#write.table(as.matrix(summary(results_wt_RvsC_sig_MF)),file="~/Desktop/200707_results_wt_RvsC_sig_MF.txt",sep="\t")
+#write.table(as.matrix(summary(results_KO_PvsC_sig_MF)),file="~/Desktop/200611_results_KO_PvsC_sig_MF.txt",sep="\t")
+```
+
+#### Cellular component GO analysis
+```{r}
+results_wt_PvsC_sig_CC <- enrichGO(gene = results_wt_PvsC_sig$Row.names,
+                keyType       = 'ENSEMBL',
+                OrgDb         = org.Mm.eg.db,
+                ont           = "CC",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.05,
+                qvalueCutoff  = 0.05,
+                minGSSize     = 3,
+                readable      = TRUE)
+head(summary(results_wt_PvsC_sig_CC))
+
+results_wt_RvsP_sig_CC <- enrichGO(gene = results_wt_RvsP_sig$Row.names,
+                keyType       = 'ENSEMBL',
+                OrgDb         = org.Mm.eg.db,
+                ont           = "CC",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.05,
+                qvalueCutoff  = 0.05,
+                minGSSize     = 3,
+                readable      = TRUE)
+head(summary(results_wt_RvsP_sig_CC))
+
+results_wt_RvsC_sig_CC <- enrichGO(gene = results_wt_RvsC_sig$Row.names,
+                keyType       = 'ENSEMBL',
+                OrgDb         = org.Mm.eg.db,
+                ont           = "CC",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.05,
+                qvalueCutoff  = 0.05,
+                minGSSize     = 3,
+                readable      = TRUE)
+head(summary(results_wt_RvsC_sig_CC))
+
+results_KO_PvsC_sig_CC <- enrichGO(gene = results_KO_PvsC_sig$Row.names,
+                keyType       = 'ENSEMBL',
+                OrgDb         = org.Mm.eg.db,
+                ont           = "CC",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.05,
+                qvalueCutoff  = 0.05,
+                minGSSize     = 3,
+                readable      = TRUE)
+head(summary(results_KO_PvsC_sig_CC))
+
+```
+
+```{r}
+#Plot top 15 CCs as dotplots
+dotplot(results_wt_PvsC_sig_CC, showCategory=15)
+dotplot(results_wt_RvsP_sig_CC, showCategory=15)
+dotplot(results_wt_RvsC_sig_CC, showCategory=15)
+dotplot(results_KO_PvsC_sig_CC, showCategory=15)
+```
+
+```{r}
+#Plot top 5 CCs as a cnetplot (GO terms are in brown bubbles, and gene names are in grey bubbles)
+cnetplot(results_wt_PvsC_sig_CC, 5)
+cnetplot(results_wt_RvsP_sig_CC, 5)
+cnetplot(results_KO_PvsC_sig_CC, 5)
+```
+
+```{r}
+##write the analysis results to file:
+#write.table(as.matrix(summary(results_wt_PvsC_sig_CC)),file="~/Desktop/200611_results_wt_PvsC_sig_CC.txt",sep="\t")
+#write.table(as.matrix(summary(results_wt_RvsP_sig_CC)),file="~/Desktop/200707_results_wt_RvsP_sig_CC.txt",sep=#"\t")
+#write.table(as.matrix(summary(results_wt_RvsC_sig_CC)),file="~/Desktop/200707_results_wt_RvsC_sig_CC.txt",sep="\t")
+#write.table(as.matrix(summary(results_KO_PvsC_sig_CC)),file="~/Desktop/200611_results_KO_PvsC_sig_CC.txt",sep="\t")
+```
+
+
+#### KEGG analysis
+```{r}
+#First change the gene IDs from ENSEMBL to ENTREZ:
+results_wt_PvsC_sig.entrez <- bitr(results_wt_PvsC_sig$Row.names, fromType = "ENSEMBL",
+        toType = c("ENTREZID"),
+        OrgDb = org.Mm.eg.db)
+
+results_wt_RvsP_sig.entrez <- bitr(results_wt_RvsP_sig$Row.names, fromType = "ENSEMBL",
+        toType = c("ENTREZID"),
+        OrgDb = org.Mm.eg.db)
+
+results_wt_RvsC_sig.entrez <- bitr(results_wt_RvsC_sig$Row.names, fromType = "ENSEMBL",
+        toType = c("ENTREZID"),
+        OrgDb = org.Mm.eg.db)
+
+results_KO_PvsC_sig.entrez <- bitr(results_KO_PvsC_sig$Row.names, fromType = "ENSEMBL",
+        toType = c("ENTREZID"),
+        OrgDb = org.Mm.eg.db)
+
+```
+
+```{r}
+#Then perform the KEGG analysis
+results_wt_PvsC_sig_KEGG <- enrichKEGG(gene = results_wt_PvsC_sig.entrez$ENTREZID,
+                 organism     = 'mmu',
+                 pvalueCutoff = 0.05)
+head(results_wt_PvsC_sig_KEGG)
+
+results_wt_RvsP_sig_KEGG <- enrichKEGG(gene = results_wt_RvsP_sig.entrez$ENTREZID,
+                 organism     = 'mmu',
+                 pvalueCutoff = 0.05)
+head(results_wt_RvsP_sig_KEGG)
+
+results_wt_RvsC_sig_KEGG <- enrichKEGG(gene = results_wt_RvsC_sig.entrez$ENTREZID,
+                 organism     = 'mmu',
+                 pvalueCutoff = 0.05)
+head(results_wt_RvsC_sig_KEGG)
+
+results_KO_PvsC_sig_KEGG <- enrichKEGG(gene = results_KO_PvsC_sig.entrez$ENTREZID,
+                 organism     = 'mmu',
+                 pvalueCutoff = 0.05)
+head(results_KO_PvsC_sig_KEGG)
+
+```
+
+```{r}
+#Plot top 15 KEGGs as dotplots
+dotplot(results_wt_PvsC_sig_KEGG, showCategory=15)
+dotplot(results_wt_RvsP_sig_KEGG, showCategory=15)
+dotplot(results_wt_RvsC_sig_KEGG, showCategory=15)
+dotplot(results_KO_PvsC_sig_KEGG, showCategory=15)
+```
+
+```{r}
+#Plot top 5 KEGGs as a cnetplot (GO terms are in brown bubbles, and gene names are in grey bubbles)
+cnetplot(results_wt_PvsC_sig_KEGG, 5)
+cnetplot(results_wt_RvsP_sig_KEGG, 5)
+cnetplot(results_KO_PvsC_sig_KEGG, 5)
+```
+
+```{r}
+##write the analysis results to file:
+#write.table(as.matrix(summary(results_wt_PvsC_sig_KEGG)),file="~/Desktop/200611_results_wt_PvsC_sig_KEGG.txt",sep="\t")
+#write.table(as.matrix(summary(results_wt_RvsP_sig_KEGG)),file="~/Desktop/200707_results_wt_RvsP_sig_KEGG.txt",sep="\t")
+#write.table(as.matrix(summary(results_wt_RvsC_sig_KEGG)),file="~/Desktop/200707_results_wt_RvsC_sig_KEGG.txt",sep="\t")
+#write.table(as.matrix(summary(results_KO_PvsC_sig_KEGG)),file="~/Desktop/200611_results_KO_PvsC_sig_KEGG.txt",sep="\t")
+```
+
+##Heatmaps of selected genes
+
+####Load gene lists
+```{r}
+genesignature_3F = read.delim("~/Desktop/NK_input/200413_genesignature_3F.txt", row.names = 1)
+genesignature_ILCTF = read.delim("~/Desktop/NK_input/200413_genesignature_ILCTF.txt", row.names = 1)
+genesignature_NKsignature = read.delim("~/Desktop/NK_input/200413_genesignature_NKsignature.txt", row.names = 1)
+genesignature_ILC1 = read.delim("~/Desktop/NK_input/200413_genesignature_ILC1.txt", row.names = 1)
+genesignature_ILC2 = read.delim("~/Desktop/NK_input/200413_genesignature_ILC2.txt", row.names = 1)
+genesignature_ILC3 = read.delim("~/Desktop/NK_input/200413_genesignature_ILC3.txt", row.names = 1)
+genesignature_CCR = read.delim("~/Desktop/NK_input/200413_genesignature_CCR.txt", row.names = 1)
+```
+
+####Make TPM lists of expressed genes for the comparisons in the heatmaps
+```{r}
+preNKP_TPM_cutoff = merge(x=preNKP_TPMco_genelist, y=TPM, by.x=1, by.y=0, all.x=TRUE)
+rownames(preNKP_TPM_cutoff) = preNKP_TPM_cutoff[,1]
+preNKP_subset = c(5:7,13:15)
+preNKP_TPM_cutoff = preNKP_TPM_cutoff[,preNKP_subset]
+head(preNKP_TPM_cutoff)
+```
+
+####Merge with TPM list
+```{r}
+Fig3F_TPM = merge(x=genesignature_3F, y=TPM, by.x=0, by.y=0, all.x=TRUE)
+rownames(Fig3F_TPM) = Fig3F_TPM$gene_name
+
+ILCTF_TPM = merge(x=genesignature_ILCTF, y=preNKP_TPM_cutoff, by.x=0, by.y=0, all.x=TRUE)
+rownames(ILCTF_TPM) = ILCTF_TPM$gene_name
+
+NKsignature_TPM = merge(x=genesignature_NKsignature, y=preNKP_TPM_cutoff, by.x=0, by.y=0, all.x=TRUE)
+rownames(NKsignature_TPM) = NKsignature_TPM$gene_name
+
+ILC1_TPM = merge(x=genesignature_ILC1, y=preNKP_TPM_cutoff, by.x=0, by.y=0, all.x=TRUE)
+rownames(ILC1_TPM) = ILC1_TPM$gene_name
+
+ILC2_TPM = merge(x=genesignature_ILC2, y=preNKP_TPM_cutoff, by.x=0, by.y=0, all.x=TRUE)
+rownames(ILC2_TPM) = ILC2_TPM$gene_name
+
+ILC3_TPM = merge(x=genesignature_ILC3, y=preNKP_TPM_cutoff, by.x=0, by.y=0, all.x=TRUE)
+rownames(ILC3_TPM) = ILC3_TPM$gene_name
+
+CCR_TPM = merge(x=genesignature_CCR, y=preNKP_TPM_cutoff, by.x=0, by.y=0, all.x=TRUE)
+rownames(CCR_TPM) = CCR_TPM$gene_name
+
+```
+
+
+```{r}
+#Fig 6D genes of interest
+breaksList = seq(2, 7, by = 0.25)
+
+TPM_3F_heat=pheatmap(log2(Fig3F_TPM[4:17]+1), border_color = "black", cluster_rows = TRUE, cluster_cols = TRUE,
+         color = colorRampPalette(c("white", "darkgreen"))(20),
+         breaks = breaksList)
+```
+
+```{r}
+#ILC TFs (Fig 5D)
+breaksList = seq(0, 10, by = 0.5)
+preNKP_subset = c(4:9)
+
+ILCTF_TPM = na.omit(ILCTF_TPM)
+
+TPM_ILC_TF_heat=pheatmap(log2(ILCTF_TPM[,preNKP_subset]+1), border_color = "black", cluster_rows = TRUE, cluster_cols = TRUE,
+         color = colorRampPalette(c("white", "darkgreen"))(20),
+         breaks = breaksList)
+```
+
+
+```{r}
+#ILC1 (Fig 5E)
+breaksList = seq(0, 5, by = 0.25)
+
+ILC1_TPM = na.omit(ILC1_TPM)
+
+TPM_ILC1_heat=pheatmap(log2(ILC1_TPM[,preNKP_subset]+1), border_color = "black", cluster_rows = TRUE, cluster_cols = TRUE,
+         color = colorRampPalette(c("white", "darkgreen"))(20),
+         breaks = breaksList)
+```
+
+```{r}
+#ILC2 (Fig 5F)
+breaksList = seq(0, 5, by = 0.25)
+
+ILC2_TPM = na.omit(ILC2_TPM)
+
+TPM_ILC2_heat=pheatmap(log2(ILC2_TPM[,preNKP_subset]+1), border_color = "black", cluster_rows = TRUE, cluster_cols = TRUE,
+         color = colorRampPalette(c("white", "darkgreen"))(20),
+         breaks = breaksList)
+```
+
+```{r}
+#ILC3 (Fig 5G)
+breaksList = seq(0, 5, by = 0.25)
+
+ILC3_TPM = na.omit(ILC3_TPM)
+
+TPM_ILC3_heat=pheatmap(log2(ILC3_TPM[,preNKP_subset]+1), border_color = "black", cluster_rows = TRUE, cluster_cols = TRUE,
+         color = colorRampPalette(c("white", "darkgreen"))(20),
+         breaks = breaksList)
+```
+
+```{r}
+#CCRs (Fig S8C)
+breaksList = seq(0, 5, by = 0.25)
+
+CCR_TPM = na.omit(CCR_TPM)
+
+TPM_CCR_heat=pheatmap(log2(CCR_TPM[,preNKP_subset]+1), border_color = "black", cluster_rows = TRUE, cluster_cols = TRUE,
+         color = colorRampPalette(c("white", "darkgreen"))(20),
+         breaks = breaksList)
+```
+
+
+####Find unique genes for each cell type
+```{r}
+#library(VennDiagram)
+wt_venn = VennDiagram::get.venn.partitions(list(CLP=rownames(CLP_wt_TPM_wco), preNKP=rownames(preNKP_wt_TPM_wco), rNKP=rownames(rNKP_wt_TPM_wco)))
+wt_venn
+#grid.newpage()
+#grid::grid.draw(VennDiagram::venn.diagram(list(CLP=rownames(CLP_wt_TPM_wco), preNKP=rownames(preNKP_wt_TPM_wco), rNKP=rownames(rNKP_wt_TPM_wco)), NULL))
+
+CLP_wt_unique=wt_venn[7,5]
+write.table(CLP_wt_unique,file="~/Desktop/temp",sep="\t")
+CLP_wt_unique <- read.csv("~/Desktop/temp", sep="", row.names = 2)
+
+preNKP_wt_unique=wt_venn[6,5]
+write.table(preNKP_wt_unique,file="~/Desktop/temp",sep="\t")
+preNKP_wt_unique <- read.csv("~/Desktop/temp", sep="", row.names = 2)
+
+rNKP_wt_unique=wt_venn[5,5]
+write.table(rNKP_wt_unique,file="~/Desktop/temp",sep="\t")
+rNKP_wt_unique <- read.csv("~/Desktop/temp", sep="", row.names = 2)
+
+unique_genes_wt=rbind(CLP_wt_unique, preNKP_wt_unique,rNKP_wt_unique)
+```
+
+####Merge with TPM table and add gene names
+```{r}
+unique_genes_wt_TPM = merge(x=unique_genes_wt, y=TPM, by.x=0, by.y=0, all.x=TRUE)
+rownames(unique_genes_wt_TPM) = unique_genes_wt_TPM$Row.names
+unique_genes_wt_TPM=unique_genes_wt_TPM[,3:16]
+
+unique_genes_wt_TPM <- merge(x=unique_genes_wt_TPM, y=ensembl2name, by.x=0, by.y=1, all.x=TRUE)
+rownames(unique_genes_wt_TPM) = unique_genes_wt_TPM$Row.names
+unique_genes_wt_TPM=unique_genes_wt_TPM[,2:16]
+
+```
+
+####load list of genes to highlight
+```{r}
+highlight2 = read.delim("~/Desktop/NK_input/200412_highlight_genes.txt", row.names = 2)
+```
+
+####Heatmap with highlight genes (Fig 1D)
+```{r}
+wt_TPM_cutoff = merge(x=wt_TPMco_genelist, y=TPM, by.x=1, by.y=0, all.x=TRUE)
+rownames(wt_TPM_cutoff) = wt_TPM_cutoff[,1]
+wt_TPM_cutoff = wt_TPM_cutoff[,2:10]
+wt_TPM_cutoff_name <- merge(x=wt_TPM_cutoff, y=ensembl2name, by.x=0, by.y=1, all.x=TRUE)
+
+#remove duplicate gene names
+wt_TPM_cutoff_name = wt_TPM_cutoff_name[!duplicated(wt_TPM_cutoff_name$external_gene_name),]
+wt_TPM_cutoff_name <- na.omit(wt_TPM_cutoff_name)
+rownames(wt_TPM_cutoff_name) = wt_TPM_cutoff_name[,11]
+wt_TPM_cutoff_name = wt_TPM_cutoff_name[,c(2:10)]
+
+#plot the heatmap
+highlight_TPM = merge(x=highlight2, y=wt_TPM_cutoff_name, by.x=0, by.y=0, all.x=TRUE)
+rownames(highlight_TPM) = highlight_TPM$Row.names
+highlight_TPM = highlight_TPM[,3:11]
+
+highlight_TPM = na.omit(highlight_TPM)
+
+highlight_TPM_heat=pheatmap(log2(highlight_TPM+1), border_color = "black", cluster_rows = TRUE, cluster_cols = TRUE,
+         color = colorRampPalette(c("white", "darkgreen"))(20),
+         breaks = breaksList)
+
+```
+
+
+
+####Beautify GO plots, load data:
+```{r}
+setwd("~/Desktop/200611_full_GOLists/")
+wt_PvsC_sig_KEGG = read.delim("200611_results_wt_PvsC_sig_KEGG_decimal.txt")
+wt_RvsP_sig_KEGG = read.delim("200707_results_wt_RvsP_sig_KEGG_decimal.txt")
+wt_RvsC_sig_KEGG = read.delim("200707_results_wt_RvsC_sig_KEGG_decimal.txt")
+
+```
+
+####wt_PvsC_sig_KEGG (Fig 1F,1)
+
+```{r}
+y <- as.data.frame(wt_PvsC_sig_KEGG)
+head(y)
+#y$order = rev(y$order)
+y$Description <- factor(y$Description, levels = y$Description[order(y$GeneRatio_decimal)])
+y = y[0:15,]
+gg = ggplot(y,
+      aes(x = 1, y = Description)) + 
+      geom_point(aes(size = Count, color = p.adjust))+# color = "black", pch = 21) +
+      theme_bw(base_size = 14) +
+      scale_colour_gradient(low = "darkgreen", high="white", guide = guide_colorbar(frame.colour = "black", ticks.colour = "black")) +
+      geom_point(aes(size = Count), color = "black", pch = 21) +
+      ylab(NULL) +
+      xlab(NULL) +
+      scale_x_discrete(expand=c(0,0))  +
+      guides(size = guide_legend(order = 1)) +
+      labs(size = "genes", color = "p value") +
+      theme(axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank())
+gg
+```
+
+####wt_RvsP_sig_KEGG (Fig 1F,2)
+
+```{r}
+y <- as.data.frame(wt_RvsP_sig_KEGG)
+head(y)
+#y$order = rev(y$order)
+y$Description <- factor(y$Description, levels = y$Description[order(y$GeneRatio_decimal)])
+y = y[0:15,]
+gg = ggplot(y,
+      aes(x = 1, y = Description)) + 
+      geom_point(aes(size = Count, color = p.adjust))+# color = "black", pch = 21) +
+      theme_bw(base_size = 14) +
+      scale_colour_gradient(low = "darkgreen", high="white", guide = guide_colorbar(frame.colour = "black", ticks.colour = "black")) +
+      geom_point(aes(size = Count), color = "black", pch = 21) +
+      ylab(NULL) +
+      xlab(NULL) +
+      scale_x_discrete(expand=c(0,0))  +
+      labs(size = "genes", color = "p value") +
+      theme(axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank())
+gg
+```
+
+
+```{r}
+sessionInfo()
+```
